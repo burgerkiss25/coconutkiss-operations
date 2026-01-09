@@ -1,12 +1,8 @@
-// src/sellers.js
-import { fetchReferenceData, listTable } from "./db.js";
+/* src/sellers.js */
+import { fetchReferenceData, fetchAssignedSellers } from "./db.js";
 
-/**
- * Render seller cards
- */
 const renderList = (listEl, rows) => {
   listEl.innerHTML = "";
-
   if (!rows || rows.length === 0) {
     listEl.innerHTML = '<p class="muted">No sellers found.</p>';
     return;
@@ -15,24 +11,39 @@ const renderList = (listEl, rows) => {
   rows.forEach((row) => {
     const item = document.createElement("div");
     item.className = "card";
+
+    // Row structure comes from fetchAssignedSellers()
+    const sellerName = row.seller_name || row.name || "Unknown";
+    const jointName = row.joint_name || "Unknown";
+
+    const noteLine = row.note ? `<p class="muted">${row.note}</p>` : "";
+
     item.innerHTML = `
-      <strong>${row.name}</strong>
-      <p class="muted">Joint: ${row.joint_name || "Unassigned"}</p>
+      <strong>${sellerName}</strong>
+      <p class="muted">Joint: ${jointName}</p>
+      ${noteLine}
     `;
+
     listEl.appendChild(item);
   });
 };
 
-/**
- * Fill joint filter dropdown. Keeps previous selection if still available.
- */
-const buildJointFilterOptions = (filterSelect, joints) => {
-  const previousValue = filterSelect.value || "";
+export const loadSellers = async () => {
+  const sellerListEl = document.getElementById("sellerList");
+  const filterSelect = document.getElementById("sellerJointFilter");
+
+  // Safety: if tab is not mounted yet
+  if (!sellerListEl || !filterSelect) return;
+
+  // Build filter options
+  const { joints } = await fetchReferenceData();
+
+  // Preserve previous selection (so it doesn't reset on reload)
+  const previousValue = filterSelect.value;
 
   filterSelect.innerHTML = '<option value="">All joints</option>';
-
   (joints ?? [])
-    .filter((j) => j && j.is_active !== false) // show active joints (or those without flag)
+    .filter((j) => j.is_active !== false)
     .forEach((joint) => {
       const option = document.createElement("option");
       option.value = joint.id;
@@ -40,65 +51,28 @@ const buildJointFilterOptions = (filterSelect, joints) => {
       filterSelect.appendChild(option);
     });
 
-  const previousStillExists =
-    previousValue === "" ||
-    Array.from(filterSelect.options).some((opt) => opt.value === previousValue);
+  // Restore previous value if still exists
+  if (previousValue) {
+    const stillExists = Array.from(filterSelect.options).some((o) => o.value === previousValue);
+    if (stillExists) filterSelect.value = previousValue;
+  }
 
-  filterSelect.value = previousStillExists ? previousValue : "";
-};
+  const loadAndRender = async () => {
+    const selectedJoint = filterSelect.value || null;
 
-/**
- * Core loader: loads joints for filter + loads sellers list for selected joint (or all joints)
- */
-export const loadSellers = async () => {
-  const filterSelect = document.getElementById("sellerJointFilter");
-  const listEl = document.getElementById("sellerList");
-  if (!filterSelect || !listEl) return;
+    // NEW FLEX LOGIC:
+    // show sellers based on current active assignments (seller_assignments),
+    // not sellers.joint_id.
+    const assigned = await fetchAssignedSellers({ jointId: selectedJoint });
 
-  // 1) Load reference data (joints)
-  const { joints } = await fetchReferenceData();
-  buildJointFilterOptions(filterSelect, joints);
+    renderList(sellerListEl, assigned);
+  };
 
-  // 2) Determine selected joint
-  const selectedJoint = filterSelect.value; // "" => all joints
+  // Ensure we do not attach multiple listeners if loadSellers is called many times
+  if (!filterSelect.dataset.bound) {
+    filterSelect.addEventListener("change", loadAndRender);
+    filterSelect.dataset.bound = "true";
+  }
 
-  // 3) Query sellers
-  // IMPORTANT: Only apply .eq when a joint is actually selected
-  const sellers = await listTable("sellers", {
-    select: "id,name,joint_id,is_active,joints(name)",
-    eq: selectedJoint ? { joint_id: selectedJoint } : undefined,
-    order: "name",
-    ascending: true,
-  });
-
-  // 4) Format + render
-  const formatted = (sellers ?? [])
-    .filter((s) => s && s.is_active !== false) // hide inactive sellers if flag exists
-    .map((seller) => ({
-      ...seller,
-      joint_name: seller.joints?.name,
-    }));
-
-  renderList(listEl, formatted);
-};
-
-/**
- * Initialize this module (attach listeners).
- * Call this once from your main bootstrap (e.g. ui.js / dashboard.js) when the Sellers tab is shown.
- */
-export const initSellers = async () => {
-  const filterSelect = document.getElementById("sellerJointFilter");
-  if (!filterSelect) return;
-
-  // Avoid double-binding if initSellers() is called multiple times
-  if (filterSelect.dataset.bound === "1") return;
-  filterSelect.dataset.bound = "1";
-
-  // Load initial list
-  await loadSellers();
-
-  // Reload list whenever filter changes
-  filterSelect.addEventListener("change", async () => {
-    await loadSellers();
-  });
+  await loadAndRender();
 };
