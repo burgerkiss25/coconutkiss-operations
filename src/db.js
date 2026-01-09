@@ -1,72 +1,56 @@
-// src/db.js
+/* src/db.js */
 import { CONFIG, supabaseClient } from "./config.js";
 import { currentUser } from "./auth.js";
 
 /**
- * Loads reference data used across the app (dropdowns, lists, etc.)
- * Now includes active seller assignments so seller ↔ joint mapping can be flexible.
+ * Notes:
+ * - Sellers are now "flexible" via public.seller_assignments (active + start_at/end_at).
+ * - We still keep sellers.joint_id in DB (legacy), but UI logic uses assignments.
+ * - This file also fixes the "Multiple GoTrueClient instances" warning by caching the supabase client.
  */
+
+let _cachedSupabase = null;
+const getSupabase = () => {
+  if (_cachedSupabase) return _cachedSupabase;
+  _cachedSupabase = supabaseClient();
+  return _cachedSupabase;
+};
+
 export const fetchReferenceData = async () => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
-    return { joints: [], sellers: [], suppliers: [], assignments: [] };
+    return { joints: [], sellers: [], suppliers: [] };
   }
 
-  const [jointsRes, sellersRes, suppliersRes, assignmentsRes] = await Promise.all([
+  const [jointsRes, sellersRes, suppliersRes] = await Promise.all([
     supabase.from("joints").select("id,name,is_active").order("name"),
+    // IMPORTANT: sellers no longer require joint_id to display; fetched for admin screens/forms if needed
     supabase.from("sellers").select("id,name,is_active").order("name"),
-    supabase.from("suppliers").select("id,name,phone_whatsapp,note,is_active").order("name"),
     supabase
-      .from("seller_assignments")
-      .select("id,seller_id,joint_id,active,start_at,end_at,note")
-      .eq("active", true),
+      .from("suppliers")
+      .select("id,name,phone_whatsapp,note,is_active")
+      .order("name"),
   ]);
 
   return {
     joints: jointsRes.data ?? [],
     sellers: sellersRes.data ?? [],
     suppliers: suppliersRes.data ?? [],
-    assignments: assignmentsRes.data ?? [],
   };
 };
 
-/**
- * For seller dropdowns that depend on a selected joint:
- * returns the list of ACTIVE sellers assigned to the given joint.
- *
- * NOTE:
- * This requires a FK relationship: seller_assignments.seller_id -> sellers.id
- * If your relationship name is not "sellers" in Supabase, adjust the select:
- *   .select("seller_id, seller: sellers ( id, name, is_active )")
- * or check the exact relationship label in Table Editor.
- */
-export const fetchAssignedSellersForJoint = async (jointId) => {
-  const supabase = supabaseClient();
-  if (!supabase || !jointId) return [];
-
-  const { data, error } = await supabase
-    .from("seller_assignments")
-    .select("seller_id, sellers ( id, name, is_active )")
-    .eq("joint_id", jointId)
-    .eq("active", true)
-    .order("start_at", { ascending: false });
-
-  if (error) return [];
-
-  return (data ?? [])
-    .map((row) => row.sellers)
-    .filter(Boolean)
-    .filter((s) => s.is_active !== false);
-};
-
 export const fetchDashboardMetrics = async () => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
     return { expectedStock: 0, expectedSeller: 0, activity: [] };
   }
 
-  const [deliveriesRes, allocationsRes, paymentsRes] = await Promise.all([
-    supabase.from("deliveries").select("qty,created_at").order("created_at", { ascending: false }).limit(5),
+  const [deliveries, allocations, payments] = await Promise.all([
+    supabase
+      .from("deliveries")
+      .select("qty,created_at")
+      .order("created_at", { ascending: false })
+      .limit(5),
     supabase
       .from("allocations")
       .select("qty_basis,created_at")
@@ -79,21 +63,23 @@ export const fetchDashboardMetrics = async () => {
       .limit(5),
   ]);
 
-  const deliveries = deliveriesRes.data ?? [];
-  const allocations = allocationsRes.data ?? [];
-  const payments = paymentsRes.data ?? [];
-
-  const totalDeliveries = deliveries.reduce((sum, row) => sum + (row.qty ?? 0), 0);
-  const totalAllocations = allocations.reduce((sum, row) => sum + (row.qty_basis ?? 0), 0);
-  const totalPayments = payments.reduce(
-    (sum, row) => sum + (row.amount_ghs ?? 0) / CONFIG.BASIS_UNIT_PRICE,
+  const totalDeliveries = (deliveries.data ?? []).reduce((sum, row) => sum + (row.qty || 0), 0);
+  const totalAllocations = (allocations.data ?? []).reduce(
+    (sum, row) => sum + (row.qty_basis || 0),
     0
   );
+  const totalPayments = (payments.data ?? []).reduce((sum, row) => {
+    const amount = row.amount_ghs || 0;
+    return sum + amount / CONFIG.BASIS_UNIT_PRICE;
+  }, 0);
 
   const activity = [
-    ...deliveries.map((row) => ({ type: "Delivery", created_at: row.created_at })),
-    ...allocations.map((row) => ({ type: "Allocation", created_at: row.created_at })),
-    ...payments.map((row) => ({ type: "Payment", created_at: row.created_at })),
+    ...((deliveries.data ?? []).map((row) => ({ type: "Delivery", created_at: row.created_at }))),
+    ...((allocations.data ?? []).map((row) => ({
+      type: "Allocation",
+      created_at: row.created_at,
+    }))),
+    ...((payments.data ?? []).map((row) => ({ type: "Payment", created_at: row.created_at }))),
   ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   return {
@@ -104,7 +90,7 @@ export const fetchDashboardMetrics = async () => {
 };
 
 export const fetchUpcomingEvents = async () => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
     return [];
   }
@@ -123,7 +109,7 @@ export const fetchUpcomingEvents = async () => {
 };
 
 export const insertRow = async (table, payload) => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
     return { error: { message: "Supabase not configured" } };
   }
@@ -131,16 +117,17 @@ export const insertRow = async (table, payload) => {
 };
 
 export const listTable = async (table, query = {}) => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
     return [];
   }
+
   let builder = supabase.from(table).select(query.select || "*");
 
   if (query.eq) {
     Object.entries(query.eq).forEach(([key, value]) => {
-      // allow 0, but ignore null/undefined/empty string
-      if (value !== null && value !== undefined && value !== "") {
+      // Allow false/0; only ignore null/undefined/""
+      if (value !== undefined && value !== null && value !== "") {
         builder = builder.eq(key, value);
       }
     });
@@ -150,12 +137,81 @@ export const listTable = async (table, query = {}) => {
     builder = builder.order(query.order, { ascending: query.ascending ?? false });
   }
 
-  const { data } = await builder;
+  const { data, error } = await builder;
+  if (error) {
+    console.error("listTable error:", table, error);
+    return [];
+  }
   return data ?? [];
 };
 
+/**
+ * NEW: Flexible seller logic
+ * Returns the "currently assigned" sellers.
+ * - If jointId is provided: only sellers actively assigned to that joint.
+ * - If jointId is empty/null: all active assignments across joints.
+ *
+ * Requires table public.seller_assignments with columns:
+ * seller_id, joint_id, active, start_at, end_at
+ */
+export const fetchAssignedSellers = async ({ jointId } = {}) => {
+  const supabase = getSupabase();
+  if (!supabase) {
+    return [];
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // We treat "active assignment" as:
+  // active = true
+  // start_at <= now
+  // (end_at is null OR end_at > now)
+  let query = supabase
+    .from("seller_assignments")
+    .select(
+      `
+      id,
+      seller_id,
+      joint_id,
+      active,
+      start_at,
+      end_at,
+      note,
+      sellers ( id, name, is_active ),
+      joints ( id, name, is_active )
+    `
+    )
+    .eq("active", true)
+    .lte("start_at", nowIso)
+    .or(`end_at.is.null,end_at.gt.${nowIso}`);
+
+  if (jointId) {
+    query = query.eq("joint_id", jointId);
+  }
+
+  const { data, error } = await query.order("start_at", { ascending: false });
+  if (error) {
+    console.error("fetchAssignedSellers error:", error);
+    return [];
+  }
+
+  // Normalize to flat rows for UI
+  return (data ?? [])
+    .filter((row) => row?.sellers?.is_active !== false) // hide disabled sellers
+    .map((row) => ({
+      assignment_id: row.id,
+      seller_id: row.seller_id,
+      seller_name: row.sellers?.name || "Unknown",
+      joint_id: row.joint_id,
+      joint_name: row.joints?.name || "Unknown",
+      start_at: row.start_at,
+      end_at: row.end_at,
+      note: row.note || "",
+    }));
+};
+
 export const createPaymentWithPin = async (payload, sellerPin) => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
     return { error: { message: "Supabase not configured" } };
   }
@@ -180,7 +236,7 @@ export const createPaymentWithPin = async (payload, sellerPin) => {
 };
 
 export const createEventWithPricing = async (payload) => {
-  const supabase = supabaseClient();
+  const supabase = getSupabase();
   if (!supabase) {
     return { error: { message: "Supabase not configured" } };
   }
