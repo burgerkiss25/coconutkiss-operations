@@ -1,7 +1,6 @@
 export const CONFIG = {
-  SUPABASE_URL: window.SUPABASE_URL || "https://afhmqsktegezwvjgkzz.supabase.co
-",
-  SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY || "sb_publishable_SRL1qRkPGfGdpGO2wn07TA_939_NCo4",
+  SUPABASE_URL: "https://afhmqsktegezwwjgkzz.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_....", // so lassen (publishable ist korrekt)
   BASIS_UNIT_PRICE: 6,
 };
 
