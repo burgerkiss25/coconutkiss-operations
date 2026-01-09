@@ -12,10 +12,11 @@ export let currentUser = null;
 export let currentProfile = null;
 
 const setAuthView = (signedIn) => {
-  authSection.classList.toggle("hidden", signedIn);
-  mainSection.classList.toggle("hidden", !signedIn);
-  document.getElementById("bottomNav").classList.toggle("hidden", !signedIn);
-  document.getElementById("fab").classList.toggle("hidden", !signedIn);
+  authSection?.classList.toggle("hidden", signedIn);
+  mainSection?.classList.toggle("hidden", !signedIn);
+
+  document.getElementById("bottomNav")?.classList.toggle("hidden", !signedIn);
+  document.getElementById("fab")?.classList.toggle("hidden", !signedIn);
 };
 
 export const initAuth = async () => {
