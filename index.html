@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CoconutKiss Operations</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">CoconutKiss Operations</p>
+          <h1>Operations Hub</h1>
+        </div>
+        <button id="logoutBtn" class="ghost-button">Log out</button>
+      </header>
+
+      <section id="authSection" class="panel">
+        <h2>Sign in</h2>
+        <p class="muted">Use your Supabase email/password credentials.</p>
+        <form id="loginForm" class="stack">
+          <label>
+            Email
+            <input type="email" id="emailInput" required />
+          </label>
+          <label>
+            Password
+            <input type="password" id="passwordInput" required />
+          </label>
+          <button type="submit" class="primary-button">Sign in</button>
+        </form>
+      </section>
+
+      <section id="mainSection" class="hidden">
+        <div class="status-row">
+          <div>
+            <p class="muted" id="userRole">Role</p>
+            <p class="muted" id="userEmail">Email</p>
+          </div>
+          <div class="pill" id="connectionState">Offline</div>
+        </div>
+
+        <section id="tab-dashboard" class="tab-panel">
+          <div class="grid">
+            <article class="card">
+              <h3>Expected joint stock</h3>
+              <p class="metric" id="expectedStock">0</p>
+              <p class="muted">Deliveries minus allocations.</p>
+            </article>
+            <article class="card">
+              <h3>Expected seller coconuts</h3>
+              <p class="metric" id="expectedSeller">0</p>
+              <p class="muted">Allocations minus paid equivalents.</p>
+            </article>
+          </div>
+
+          <details class="accordion">
+            <summary>Upcoming Events (next 7 days)</summary>
+            <div id="upcomingEvents" class="stack"></div>
+            <a class="link" href="#" data-open="events">Manage events</a>
+          </details>
+
+          <details class="accordion">
+            <summary>Latest activity</summary>
+            <div id="latestActivity" class="stack"></div>
+          </details>
+        </section>
+
+        <section id="tab-stock" class="tab-panel hidden">
+          <details class="accordion">
+            <summary>Filters</summary>
+            <div class="grid">
+              <label>
+                Joint
+                <select id="stockJointFilter"></select>
+              </label>
+            </div>
+          </details>
+          <div class="grid">
+            <article class="card">
+              <h3>Deliveries</h3>
+              <div id="deliveryList" class="stack"></div>
+              <button class="secondary-button" data-open="delivery">Record delivery</button>
+            </article>
+            <article class="card">
+              <h3>Allocations</h3>
+              <div id="allocationList" class="stack"></div>
+              <button class="secondary-button" data-open="allocation">Give coconuts</button>
+            </article>
+          </div>
+        </section>
+
+        <section id="tab-sellers" class="tab-panel hidden">
+          <details class="accordion">
+            <summary>Filters</summary>
+            <div class="grid">
+              <label>
+                Joint
+                <select id="sellerJointFilter"></select>
+              </label>
+            </div>
+          </details>
+          <article class="card">
+            <h3>Sellers</h3>
+            <div id="sellerList" class="stack"></div>
+          </article>
+        </section>
+
+        <section id="tab-suppliers" class="tab-panel hidden">
+          <article class="card">
+            <h3>Suppliers</h3>
+            <div id="supplierList" class="stack"></div>
+          </article>
+        </section>
+
+        <section id="tab-reports" class="tab-panel hidden">
+          <details class="accordion">
+            <summary>Filters</summary>
+            <div class="grid">
+              <label>
+                Joint
+                <select id="reportJointFilter"></select>
+              </label>
+              <label>
+                Seller
+                <select id="reportSellerFilter"></select>
+              </label>
+            </div>
+          </details>
+          <article class="card">
+            <h3>Payments</h3>
+            <div id="paymentList" class="stack"></div>
+            <button class="secondary-button" data-open="payment">Receive payment</button>
+          </article>
+          <article class="card">
+            <h3>Audits</h3>
+            <div id="auditList" class="stack"></div>
+            <button class="secondary-button" data-open="audit">Audit count</button>
+          </article>
+          <article class="card">
+            <h3>Events & Bulk Orders</h3>
+            <p class="muted">Plan and track upcoming event deliveries.</p>
+            <button class="secondary-button" data-open="events">Manage events</button>
+          </article>
+        </section>
+      </section>
+    </div>
+
+    <nav class="bottom-nav hidden" id="bottomNav">
+      <button class="nav-item active" data-tab="dashboard">Dashboard</button>
+      <button class="nav-item" data-tab="stock">Stock</button>
+      <button class="nav-item" data-tab="sellers">Sellers</button>
+      <button class="nav-item" data-tab="suppliers">Suppliers</button>
+      <button class="nav-item" data-tab="reports">Reports</button>
+    </nav>
+
+    <button id="fab" class="fab hidden" aria-label="Quick actions">
+      +
+    </button>
+
+    <div id="fabMenu" class="fab-menu hidden">
+      <button data-open="delivery">Delivery</button>
+      <button data-open="allocation">Give Coconuts</button>
+      <button data-open="payment">Receive Payment</button>
+      <button data-open="audit">Audit Count</button>
+    </div>
+
+    <div id="modalOverlay" class="modal-overlay hidden"></div>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3 id="modalTitle">New</h3>
+        <button id="closeModal" class="ghost-button">Close</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+
+    <template id="deliveryFormTemplate">
+      <form class="stack" id="deliveryForm">
+        <label>
+          Joint
+          <select name="joint_id" required></select>
+        </label>
+        <label>
+          Supplier (optional)
+          <select name="supplier_id"></select>
+        </label>
+        <label>
+          Quantity delivered
+          <input type="number" name="qty" min="1" required />
+        </label>
+        <label>
+          Note
+          <textarea name="note" rows="2"></textarea>
+        </label>
+        <button class="primary-button" type="submit">Save delivery</button>
+      </form>
+    </template>
+
+    <template id="allocationFormTemplate">
+      <form class="stack" id="allocationForm">
+        <label>
+          Joint
+          <select name="joint_id" required></select>
+        </label>
+        <label>
+          Seller
+          <select name="seller_id" required></select>
+        </label>
+        <label>
+          Quantity allocated (basis)
+          <input type="number" name="qty_basis" min="1" required />
+        </label>
+        <label>
+          Note
+          <textarea name="note" rows="2"></textarea>
+        </label>
+        <button class="primary-button" type="submit">Save allocation</button>
+      </form>
+    </template>
+
+    <template id="paymentFormTemplate">
+      <form class="stack" id="paymentForm">
+        <label>
+          Joint
+          <select name="joint_id" required></select>
+        </label>
+        <label>
+          Seller
+          <select name="seller_id" required></select>
+        </label>
+        <label>
+          Amount (GHS)
+          <input type="number" name="amount_ghs" min="1" step="0.01" required />
+        </label>
+        <label>
+          Seller PIN (confirmation)
+          <input type="password" name="seller_pin" required />
+        </label>
+        <label>
+          Note
+          <textarea name="note" rows="2"></textarea>
+        </label>
+        <button class="primary-button" type="submit">Record payment</button>
+      </form>
+    </template>
+
+    <template id="auditFormTemplate">
+      <form class="stack" id="auditForm">
+        <label>
+          Joint
+          <select name="joint_id" required></select>
+        </label>
+        <label>
+          Seller (optional)
+          <select name="seller_id"></select>
+        </label>
+        <label>
+          Counted quantity
+          <input type="number" name="counted_qty" min="0" required />
+        </label>
+        <label>
+          Note
+          <textarea name="note" rows="2"></textarea>
+        </label>
+        <button class="primary-button" type="submit">Save audit</button>
+      </form>
+    </template>
+
+    <template id="eventFormTemplate">
+      <form class="stack" id="eventForm">
+        <label>
+          Event date/time
+          <input type="datetime-local" name="event_ts" required />
+        </label>
+        <label>
+          Joint
+          <select name="joint_id" required></select>
+        </label>
+        <label>
+          Customer name
+          <input type="text" name="customer_name" />
+        </label>
+        <label>
+          Customer phone
+          <input type="text" name="customer_phone" />
+        </label>
+        <label>
+          Location note
+          <textarea name="location_note" rows="2"></textarea>
+        </label>
+        <label>
+          Status
+          <select name="status" required>
+            <option value="planned">Planned</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <label>
+          Note
+          <textarea name="note" rows="2"></textarea>
+        </label>
+        <fieldset class="fieldset">
+          <legend>Pricing</legend>
+          <label>
+            Coconut qty
+            <input type="number" name="coconut_qty" min="0" />
+          </label>
+          <label>
+            Coconut unit price
+            <input type="number" name="coconut_unit_price" min="0" step="0.01" />
+          </label>
+          <label>
+            Delivery fee
+            <input type="number" name="delivery_fee" min="0" step="0.01" />
+          </label>
+          <label>
+            Opening fee
+            <input type="number" name="opening_fee" min="0" step="0.01" />
+          </label>
+          <label>
+            Other fee
+            <input type="number" name="other_fee" min="0" step="0.01" />
+          </label>
+          <label>
+            Other fee note
+            <input type="text" name="other_fee_note" />
+          </label>
+        </fieldset>
+        <p class="muted event-total">Total estimate: 0.00 GHS</p>
+        <button class="primary-button" type="submit">Save event</button>
+      </form>
+    </template>
+
+    <script type="module" src="src/config.js"></script>
+    <script type="module" src="src/auth.js"></script>
+    <script type="module" src="src/db.js"></script>
+    <script type="module" src="src/ui.js"></script>
+    <script type="module" src="src/dashboard.js"></script>
+    <script type="module" src="src/stock.js"></script>
+    <script type="module" src="src/sellers.js"></script>
+    <script type="module" src="src/suppliers.js"></script>
+    <script type="module" src="src/reports.js"></script>
+    <script type="module" src="src/events.js"></script>
+    <script type="module" src="src/utils.js"></script>
+  </body>
+</html>
