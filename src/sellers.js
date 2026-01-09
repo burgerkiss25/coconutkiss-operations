@@ -1,78 +1,80 @@
-/* src/sellers.js */
-import { fetchReferenceData, fetchAssignedSellers } from "./db.js";
+import { fetchReferenceData, listTable } from "./db.js";
 
+/* =========================
+   RENDER
+========================= */
 const renderList = (listEl, rows) => {
   listEl.innerHTML = "";
+
   if (!rows || rows.length === 0) {
-    listEl.innerHTML = '<p class="muted">No sellers found.</p>';
+    listEl.innerHTML = `<p class="muted">No sellers found.</p>`;
     return;
   }
 
   rows.forEach((row) => {
-    const item = document.createElement("div");
-    item.className = "card";
+    const card = document.createElement("div");
+    card.className = "card";
 
-    // Row structure comes from fetchAssignedSellers()
-    const sellerName = row.seller_name || row.name || "Unknown";
-    const jointName = row.joint_name || "Unknown";
-
-    const noteLine = row.note ? `<p class="muted">${row.note}</p>` : "";
-
-    item.innerHTML = `
-      <strong>${sellerName}</strong>
-      <p class="muted">Joint: ${jointName}</p>
-      ${noteLine}
+    card.innerHTML = `
+      <strong>${row.name}</strong>
+      <p class="muted">
+        Joint: ${row.joint_name || "Unassigned"}
+      </p>
     `;
 
-    listEl.appendChild(item);
+    listEl.appendChild(card);
   });
 };
 
+/* =========================
+   LOAD SELLERS
+========================= */
 export const loadSellers = async () => {
-  const sellerListEl = document.getElementById("sellerList");
   const filterSelect = document.getElementById("sellerJointFilter");
+  const listEl = document.getElementById("sellerList");
 
-  // Safety: if tab is not mounted yet
-  if (!sellerListEl || !filterSelect) return;
+  if (!filterSelect || !listEl) return;
 
-  // Build filter options
+  // Load joints for filter
   const { joints } = await fetchReferenceData();
 
-  // Preserve previous selection (so it doesn't reset on reload)
-  const previousValue = filterSelect.value;
+  filterSelect.innerHTML = `<option value="">All joints</option>`;
+  joints.forEach((joint) => {
+    const opt = document.createElement("option");
+    opt.value = joint.id;
+    opt.textContent = joint.name;
+    filterSelect.appendChild(opt);
+  });
 
-  filterSelect.innerHTML = '<option value="">All joints</option>';
-  (joints ?? [])
-    .filter((j) => j.is_active !== false)
-    .forEach((joint) => {
-      const option = document.createElement("option");
-      option.value = joint.id;
-      option.textContent = joint.name;
-      filterSelect.appendChild(option);
-    });
+  const selectedJoint = filterSelect.value || null;
 
-  // Restore previous value if still exists
-  if (previousValue) {
-    const stillExists = Array.from(filterSelect.options).some((o) => o.value === previousValue);
-    if (stillExists) filterSelect.value = previousValue;
+  // Flexible seller logic via seller_assignments
+  const sellers = await listTable("seller_assignments", {
+    select: `
+      id,
+      sellers(id,name),
+      joints(id,name)
+    `,
+    eq: selectedJoint ? { joint_id: selectedJoint, active: true } : { active: true },
+    order: "created_at",
+    ascending: false,
+  });
+
+  const formatted = sellers.map((row) => ({
+    id: row.sellers.id,
+    name: row.sellers.name,
+    joint_name: row.joints?.name ?? null,
+  }));
+
+  renderList(listEl, formatted);
+};
+
+/* =========================
+   INIT (🔥 DAS FEHLTE)
+========================= */
+export const initSellers = () => {
+  const filter = document.getElementById("sellerJointFilter");
+  if (filter) {
+    filter.addEventListener("change", loadSellers);
   }
-
-  const loadAndRender = async () => {
-    const selectedJoint = filterSelect.value || null;
-
-    // NEW FLEX LOGIC:
-    // show sellers based on current active assignments (seller_assignments),
-    // not sellers.joint_id.
-    const assigned = await fetchAssignedSellers({ jointId: selectedJoint });
-
-    renderList(sellerListEl, assigned);
-  };
-
-  // Ensure we do not attach multiple listeners if loadSellers is called many times
-  if (!filterSelect.dataset.bound) {
-    filterSelect.addEventListener("change", loadAndRender);
-    filterSelect.dataset.bound = "true";
-  }
-
-  await loadAndRender();
 };
