@@ -1,7 +1,7 @@
 import { initAuth } from "./auth.js";
 import { loadDashboard } from "./dashboard.js";
 import { loadStock } from "./stock.js";
-import { loadSellers } from "./sellers.js";
+import { initSellers } from "./sellers.js"; // ✅ statt loadSellers
 import { loadSuppliers } from "./suppliers.js";
 import { loadReports } from "./reports.js";
 import { loadEvents } from "./events.js";
@@ -49,7 +49,7 @@ const setActiveTab = (tab) => {
 const tabLoaders = {
   dashboard: loadDashboard,
   stock: loadStock,
-  sellers: loadSellers,
+  sellers: initSellers, // ✅ wichtig: init statt load
   suppliers: loadSuppliers,
   reports: loadReports,
 };
