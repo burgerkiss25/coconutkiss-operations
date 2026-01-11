@@ -1,8 +1,5 @@
 import { fetchReferenceData, listTable } from "./db.js";
 
-/* =========================
-   RENDER
-========================= */
 const renderList = (listEl, rows) => {
   listEl.innerHTML = "";
 
@@ -12,32 +9,25 @@ const renderList = (listEl, rows) => {
   }
 
   rows.forEach((row) => {
-    const card = document.createElement("div");
-    card.className = "card";
-
-    card.innerHTML = `
+    const item = document.createElement("div");
+    item.className = "card";
+    item.innerHTML = `
       <strong>${row.name}</strong>
-      <p class="muted">
-        Joint: ${row.joint_name || "Unassigned"}
-      </p>
+      <p class="muted">Joint: ${row.joint_name || "Unassigned"}</p>
     `;
-
-    listEl.appendChild(card);
+    listEl.appendChild(item);
   });
 };
 
-/* =========================
-   LOAD SELLERS
-========================= */
 export const loadSellers = async () => {
-  const filterSelect = document.getElementById("sellerJointFilter");
-  const listEl = document.getElementById("sellerList");
-
-  if (!filterSelect || !listEl) return;
-
-  // Load joints for filter
   const { joints } = await fetchReferenceData();
 
+  const filterSelect = document.getElementById("sellerJointFilter");
+  const listEl = document.getElementById("sellerList");
+  if (!filterSelect || !listEl) return;
+
+  // Filter Dropdown befüllen (Wert beibehalten)
+  const prev = filterSelect.value || "";
   filterSelect.innerHTML = `<option value="">All joints</option>`;
   joints.forEach((joint) => {
     const opt = document.createElement("option");
@@ -45,36 +35,40 @@ export const loadSellers = async () => {
     opt.textContent = joint.name;
     filterSelect.appendChild(opt);
   });
+  filterSelect.value = prev;
 
-  const selectedJoint = filterSelect.value || null;
+  const selectedJoint = filterSelect.value || "";
 
-  // Flexible seller logic via seller_assignments
-  const sellers = await listTable("seller_assignments", {
+  // Aktive Assignments laden
+  const assignments = await listTable("seller_assignments", {
     select: `
       id,
+      seller_id,
+      joint_id,
+      active,
+      start_at,
+      end_at,
       sellers(id,name),
       joints(id,name)
     `,
     eq: selectedJoint ? { joint_id: selectedJoint, active: true } : { active: true },
-    order: "created_at",
+    order: "start_at",
     ascending: false,
   });
 
-  const formatted = sellers.map((row) => ({
-    id: row.sellers.id,
-    name: row.sellers.name,
-    joint_name: row.joints?.name ?? null,
+  const formatted = (assignments ?? []).map((a) => ({
+    id: a.sellers?.id ?? a.seller_id,
+    name: a.sellers?.name ?? "Unknown",
+    joint_name: a.joints?.name ?? null,
   }));
 
   renderList(listEl, formatted);
 };
 
-/* =========================
-   INIT (🔥 DAS FEHLTE)
-========================= */
+// Optional: nur wenn du in ui.js noch init brauchst
 export const initSellers = () => {
-  const filter = document.getElementById("sellerJointFilter");
-  if (filter) {
-    filter.addEventListener("change", loadSellers);
+  const filterSelect = document.getElementById("sellerJointFilter");
+  if (filterSelect) {
+    filterSelect.addEventListener("change", loadSellers);
   }
 };
