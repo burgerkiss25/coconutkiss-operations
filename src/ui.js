@@ -8,11 +8,13 @@ import { loadEvents } from "./events.js";
 
 const tabs = document.querySelectorAll(".nav-item");
 const panels = document.querySelectorAll(".tab-panel");
+
 const modal = document.getElementById("modal");
 const modalOverlay = document.getElementById("modalOverlay");
 const closeModalBtn = document.getElementById("closeModal");
 const modalTitle = document.getElementById("modalTitle");
 const modalBody = document.getElementById("modalBody");
+
 const fab = document.getElementById("fab");
 const fabMenu = document.getElementById("fabMenu");
 
@@ -31,6 +33,8 @@ export const renderRole = (email, role) => {
 };
 
 const openModal = (title, content) => {
+  if (!modal || !modalOverlay || !modalTitle || !modalBody) return;
+
   modalTitle.textContent = title;
   modalBody.innerHTML = "";
   modalBody.appendChild(content);
@@ -39,6 +43,8 @@ const openModal = (title, content) => {
 };
 
 export const closeModal = () => {
+  if (!modal || !modalOverlay || !modalBody) return;
+
   modal.classList.add("hidden");
   modalOverlay.classList.add("hidden");
   modalBody.innerHTML = "";
@@ -72,24 +78,41 @@ const openAction = (action) => {
     audit: "Audit count",
     events: "Manage event",
   };
-  const template = document.getElementById(templates[action]);
+
+  const templateId = templates[action];
+  const title = titles[action];
+  if (!templateId || !title) return;
+
+  const template = document.getElementById(templateId);
   if (!template) return;
 
   const content = template.content.cloneNode(true);
-  openModal(titles[action], content);
+  openModal(title, content);
+
+  // Side-effects
   if (action === "events") loadEvents();
 };
 
-const handleActionClick = (event) => {
-  const action = event.target.dataset.open;
-  if (action) openAction(action);
-};
+fab?.addEventListener("click", () => {
+  fabMenu?.classList.toggle("hidden");
+});
 
-fab?.addEventListener("click", () => fabMenu.classList.toggle("hidden"));
-fabMenu?.addEventListener("click", handleActionClick);
-
+// Zentrale Click-Delegation: zuverlässig via closest("[data-open]")
 document.addEventListener("click", (event) => {
-  if (event.target.matches("[data-open]")) handleActionClick(event);
+  const trigger = event.target.closest?.("[data-open]");
+  if (!trigger) return;
+
+  const action = trigger.dataset.open;
+  if (!action) return;
+
+  // Verhindert “komische” Doppel-Events / bubbling-Probleme
+  event.preventDefault();
+  event.stopPropagation();
+
+  // FAB Menü nach Auswahl schließen
+  fabMenu?.classList.add("hidden");
+
+  openAction(action);
 });
 
 closeModalBtn?.addEventListener("click", closeModal);
@@ -98,9 +121,19 @@ modalOverlay?.addEventListener("click", closeModal);
 for (const tab of tabs) {
   tab.addEventListener("click", async () => {
     setActiveTab(tab.dataset.tab);
-    await tabLoaders[tab.dataset.tab]?.();
+    const loader = tabLoaders[tab.dataset.tab];
+    if (loader) await loader();
   });
 }
+
+// Bessere Fehlersichtbarkeit (hilft bei "stack depth limit exceeded")
+window.addEventListener("error", (e) => {
+  console.error("Window error:", e?.error || e?.message || e);
+});
+
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("Unhandled promise rejection:", e?.reason || e);
+});
 
 window.addEventListener("load", async () => {
   await initAuth();
