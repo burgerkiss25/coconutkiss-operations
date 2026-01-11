@@ -1,7 +1,7 @@
 import { initAuth } from "./auth.js";
 import { loadDashboard } from "./dashboard.js";
 import { loadStock } from "./stock.js";
-import { initSellers } from "./sellers.js"; // ✅ statt loadSellers
+import { loadSellers } from "./sellers.js";
 import { loadSuppliers } from "./suppliers.js";
 import { loadReports } from "./reports.js";
 import { loadEvents } from "./events.js";
@@ -18,13 +18,16 @@ const fabMenu = document.getElementById("fabMenu");
 
 export const updateConnectionState = (connected) => {
   const indicator = document.getElementById("connectionState");
+  if (!indicator) return;
   indicator.textContent = connected ? "Connected" : "Offline";
   indicator.classList.toggle("pill", true);
 };
 
 export const renderRole = (email, role) => {
-  document.getElementById("userEmail").textContent = email || "";
-  document.getElementById("userRole").textContent = role ? `Role: ${role}` : "";
+  const emailEl = document.getElementById("userEmail");
+  const roleEl = document.getElementById("userRole");
+  if (emailEl) emailEl.textContent = email || "";
+  if (roleEl) roleEl.textContent = role ? `Role: ${role}` : "";
 };
 
 const openModal = (title, content) => {
@@ -49,7 +52,7 @@ const setActiveTab = (tab) => {
 const tabLoaders = {
   dashboard: loadDashboard,
   stock: loadStock,
-  sellers: initSellers, // ✅ wichtig: init statt load
+  sellers: loadSellers,
   suppliers: loadSuppliers,
   reports: loadReports,
 };
@@ -70,42 +73,32 @@ const openAction = (action) => {
     events: "Manage event",
   };
   const template = document.getElementById(templates[action]);
-  if (!template) {
-    return;
-  }
+  if (!template) return;
+
   const content = template.content.cloneNode(true);
   openModal(titles[action], content);
-  if (action === "events") {
-    loadEvents();
-  }
+  if (action === "events") loadEvents();
 };
 
 const handleActionClick = (event) => {
   const action = event.target.dataset.open;
-  if (action) {
-    openAction(action);
-  }
+  if (action) openAction(action);
 };
 
-fab?.addEventListener("click", () => {
-  fabMenu.classList.toggle("hidden");
-});
-
+fab?.addEventListener("click", () => fabMenu.classList.toggle("hidden"));
 fabMenu?.addEventListener("click", handleActionClick);
 
 document.addEventListener("click", (event) => {
-  if (event.target.matches("[data-open]")) {
-    handleActionClick(event);
-  }
+  if (event.target.matches("[data-open]")) handleActionClick(event);
 });
 
 closeModalBtn?.addEventListener("click", closeModal);
 modalOverlay?.addEventListener("click", closeModal);
 
 for (const tab of tabs) {
-  tab.addEventListener("click", () => {
+  tab.addEventListener("click", async () => {
     setActiveTab(tab.dataset.tab);
-    tabLoaders[tab.dataset.tab]?.();
+    await tabLoaders[tab.dataset.tab]?.();
   });
 }
 
