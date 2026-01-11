@@ -1,87 +1,95 @@
 import { supabaseClient } from "./config.js";
 import { updateConnectionState, renderRole } from "./ui.js";
 
-const authSection = document.getElementById("authSection");
-const mainSection = document.getElementById("mainSection");
-const loginForm = document.getElementById("loginForm");
-const emailInput = document.getElementById("emailInput");
-const passwordInput = document.getElementById("passwordInput");
-const logoutBtn = document.getElementById("logoutBtn");
-
 export let currentUser = null;
-export let currentProfile = null;
 
-const setAuthView = (signedIn) => {
-  authSection?.classList.toggle("hidden", signedIn);
-  mainSection?.classList.toggle("hidden", !signedIn);
+const setAuthUI = (user) => {
+  currentUser = user || null;
 
-  document.getElementById("bottomNav")?.classList.toggle("hidden", !signedIn);
-  document.getElementById("fab")?.classList.toggle("hidden", !signedIn);
+  // falls du Rollen aus profiles ziehst, bleibt das hier minimal:
+  renderRole(user?.email || "", user ? "admin" : "");
+};
+
+const showAuthError = (msg) => {
+  const el = document.getElementById("authError");
+  if (el) {
+    el.textContent = msg || "";
+    el.classList.toggle("hidden", !msg);
+  } else if (msg) {
+    // fallback
+    console.error(msg);
+  }
 };
 
 export const initAuth = async () => {
   const supabase = supabaseClient();
   if (!supabase) {
     updateConnectionState(false);
+    showAuthError("Supabase not configured.");
     return;
   }
 
-  const { data } = await supabase.auth.getSession();
-  currentUser = data.session?.user ?? null;
-  setAuthView(Boolean(currentUser));
   updateConnectionState(true);
-  if (currentUser) {
-    await loadProfile();
-  }
 
-  supabase.auth.onAuthStateChange(async (_, session) => {
-    currentUser = session?.user ?? null;
-    setAuthView(Boolean(currentUser));
-    if (currentUser) {
-      await loadProfile();
+  // Session laden
+  const { data: sessionData } = await supabase.auth.getSession();
+  setAuthUI(sessionData?.session?.user ?? null);
+
+  // Auth changes
+  supabase.auth.onAuthStateChange((_event, session) => {
+    setAuthUI(session?.user ?? null);
+  });
+
+  // Sign-in form handler (IDs defensiv)
+  const form =
+    document.getElementById("signInForm") ||
+    document.querySelector("form[data-auth='signin']") ||
+    document.querySelector("form");
+
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault(); // 🔥 verhindert das “alles wird gelöscht”
+    showAuthError("");
+
+    const emailEl =
+      document.getElementById("email") ||
+      document.getElementById("emailInput") ||
+      form.querySelector("input[type='email']");
+
+    const passEl =
+      document.getElementById("password") ||
+      document.getElementById("pin") ||
+      document.getElementById("date") ||
+      form.querySelector("input[type='password']") ||
+      form.querySelector("input[type='text']");
+
+    const email = (emailEl?.value || "").trim();
+    const password = (passEl?.value || "").trim();
+
+    if (!email || !password) {
+      showAuthError("Please enter email and password/date.");
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        showAuthError(error.message);
+        return;
+      }
+      setAuthUI(data?.user ?? null);
+    } catch (err) {
+      showAuthError(err?.message || "Login failed.");
     }
   });
+
+  // Logout button (optional)
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      setAuthUI(null);
+    });
+  }
 };
-
-const loadProfile = async () => {
-  const supabase = supabaseClient();
-  if (!supabase || !currentUser) {
-    return;
-  }
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", currentUser.id)
-    .single();
-
-  if (error) {
-    console.error(error);
-    return;
-  }
-
-  currentProfile = data;
-  renderRole(currentUser.email, data.role);
-};
-
-loginForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const supabase = supabaseClient();
-  if (!supabase) {
-    return;
-  }
-  const { error } = await supabase.auth.signInWithPassword({
-    email: emailInput.value,
-    password: passwordInput.value,
-  });
-  if (error) {
-    alert(error.message);
-  }
-});
-
-logoutBtn?.addEventListener("click", async () => {
-  const supabase = supabaseClient();
-  if (!supabase) {
-    return;
-  }
-  await supabase.auth.signOut();
-});
