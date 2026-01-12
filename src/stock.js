@@ -85,6 +85,22 @@ const handleAllocationSubmit = async (event) => {
   await loadStock();
 };
 
+let listenersBound = false;
+
+const bindListeners = () => {
+  if (listenersBound) return;
+  listenersBound = true;
+
+  document.addEventListener("submit", (event) => {
+    if (event.target?.id === "deliveryForm") {
+      handleDeliverySubmit(event);
+    }
+    if (event.target?.id === "allocationForm") {
+      handleAllocationSubmit(event);
+    }
+  });
+};
+
 export const loadStock = async () => {
   const { joints, sellers, suppliers } = await fetchReferenceData();
   setSelectOptions(document.getElementById("stockJointFilter"), joints, "All joints");
@@ -114,14 +130,7 @@ export const loadStock = async () => {
     ).toLocaleString()}</p><p class="muted">${row.note || ""}</p>`;
   });
 
-  document.addEventListener("submit", (event) => {
-    if (event.target?.id === "deliveryForm") {
-      handleDeliverySubmit(event);
-    }
-    if (event.target?.id === "allocationForm") {
-      handleAllocationSubmit(event);
-    }
-  });
+  bindListeners();
 
   populateFormSelects("deliveryFormTemplate", joints, sellers, suppliers);
   populateFormSelects("allocationFormTemplate", joints, sellers, suppliers);

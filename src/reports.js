@@ -119,6 +119,22 @@ const populateAuditForm = (joints, sellers) => {
   });
 };
 
+let listenersBound = false;
+
+const bindListeners = () => {
+  if (listenersBound) return;
+  listenersBound = true;
+
+  document.addEventListener("submit", (event) => {
+    if (event.target?.id === "paymentForm") {
+      handlePaymentSubmit(event);
+    }
+    if (event.target?.id === "auditForm") {
+      handleAuditSubmit(event);
+    }
+  });
+};
+
 export const loadReports = async () => {
   const { joints, sellers } = await fetchReferenceData();
   populateReportFilters(joints, sellers);
@@ -154,14 +170,7 @@ export const loadReports = async () => {
       <p class="muted">${row.note || ""}</p>`;
   });
 
-  document.addEventListener("submit", (event) => {
-    if (event.target?.id === "paymentForm") {
-      handlePaymentSubmit(event);
-    }
-    if (event.target?.id === "auditForm") {
-      handleAuditSubmit(event);
-    }
-  });
+  bindListeners();
 
   populatePaymentForm(joints, sellers);
   populateAuditForm(joints, sellers);

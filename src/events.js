@@ -67,6 +67,25 @@ const handleEventSubmit = async (event) => {
   await loadEvents();
 };
 
+let listenersBound = false;
+
+const bindListeners = () => {
+  if (listenersBound) return;
+  listenersBound = true;
+
+  document.addEventListener("submit", (event) => {
+    if (event.target?.id === "eventForm") {
+      handleEventSubmit(event);
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    if (event.target?.form?.id === "eventForm") {
+      renderEventFormTotals(event.target.form);
+    }
+  });
+};
+
 export const loadEvents = async () => {
   const listContainer = document.getElementById("modalBody");
   if (listContainer) {
@@ -81,15 +100,5 @@ export const loadEvents = async () => {
     listContainer.prepend(list);
   }
 
-  document.addEventListener("submit", (event) => {
-    if (event.target?.id === "eventForm") {
-      handleEventSubmit(event);
-    }
-  });
-
-  document.addEventListener("input", (event) => {
-    if (event.target?.form?.id === "eventForm") {
-      renderEventFormTotals(event.target.form);
-    }
-  });
+  bindListeners();
 };
