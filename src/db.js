@@ -1,32 +1,74 @@
-import { supabaseClient } from "./config.js";
+import { supabaseClient, CONFIG } from "./config.js";
 
 /**
- * Returns a configured Supabase client or throws a clear error.
+ * Internal helper: always returns a configured Supabase client or throws.
  */
-export const getClient = () => {
+const getClient = () => {
   const client = supabaseClient?.();
   if (!client) {
-    throw new Error("Supabase not configured. Check config.js (SUPABASE_URL / SUPABASE_ANON_KEY).");
+    // This message should surface in console if config is missing
+    throw new Error(
+      "Supabase not configured. Please ensure CONFIG.SUPABASE_URL and CONFIG.SUPABASE_ANON_KEY are set in config.js."
+    );
   }
   return client;
 };
 
 /**
- * Generic table list helper.
+ * Generic table lister with flexible filters.
+ * opts:
+ *  - select: string (default "*")
+ *  - eq: object (e.g. { joint_id: "uuid", active: true })
+ *  - order: string (column)
+ *  - ascending: boolean (default true)
+ *  - limit: number
  */
-export const listTable = async (
-  table,
-  {
-    select = "*",
-    eq = null,
-    order = null,
-    ascending = true,
-    limit = null,
-  } = {}
-) => {
+export const listTable = async (table, opts = {}) => {
   const client = getClient();
 
+  const {
+    select = "*",
+    eq = {},
+    order,
+    ascending = true,
+    limit,
+  } = opts;
+
   let q = client.from(table).select(select);
+
+  // Apply eq filters only when value is not "" / null / undefined
+  if (eq && typeof eq === "object") {
+    for (const [key, value] of Object.entries(eq)) {
+      if (value === "" || value === null || value === undefined) continue;
+      q = q.eq(key, value);
+    }
+  }
+
+  if (order) q = q.order(order, { ascending });
+  if (typeof limit === "number") q = q.limit(limit);
+
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+};
+
+/**
+ * Insert rows into a table.
+ */
+export const insertRow = async (table, row) => {
+  const client = getClient();
+  const { data, error } = await client.from(table).insert(row).select();
+  if (error) throw error;
+  return data?.[0] ?? null;
+};
+
+/**
+ * Update rows in a table by equality filter.
+ */
+export const updateRows = async (table, values, eq = {}) => {
+  const client = getClient();
+
+  let q = client.from(table).update(values);
 
   if (eq && typeof eq === "object") {
     for (const [key, value] of Object.entries(eq)) {
@@ -35,90 +77,79 @@ export const listTable = async (
     }
   }
 
-  if (order) q = q.order(order, { ascending: !!ascending });
-  if (limit) q = q.limit(limit);
-
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
-};
-
-export const insertRow = async (table, row) => {
-  const client = getClient();
-  const { data, error } = await client.from(table).insert(row).select("*");
-  if (error) throw error;
-  return data?.[0] ?? null;
-};
-
-export const updateRow = async (table, match, patch) => {
-  const client = getClient();
-  let q = client.from(table).update(patch);
-
-  for (const [k, v] of Object.entries(match || {})) {
-    q = q.eq(k, v);
-  }
-
-  const { data, error } = await q.select("*");
+  const { data, error } = await q.select();
   if (error) throw error;
   return data || [];
 };
 
 /**
- * Loads reference data used across tabs/forms.
+ * Reference data used across UI (filters, selects).
  */
 export const fetchReferenceData = async () => {
-  const [joints, suppliers, sellers] = await Promise.all([
-    listTable("joints", { select: "id,name", order: "name", ascending: true }),
-    listTable("suppliers", { select: "id,name", order: "name", ascending: true }),
-    listTable("sellers", { select: "id,name", order: "name", ascending: true }),
-  ]);
+  // Keep this resilient: even if one table fails, we still return others.
+  const safe = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch (e) {
+      console.warn("fetchReferenceData partial failure:", e?.message || e);
+      return fallback;
+    }
+  };
+
+  const joints = await safe(
+    () => listTable("joints", { select: "id,name", order: "name", ascending: true }),
+    []
+  );
+
+  const suppliers = await safe(
+    () => listTable("suppliers", { select: "id,name", order: "name", ascending: true }),
+    []
+  );
+
+  // Sellers list is optional reference data; sellers tab uses its own query anyway.
+  const sellers = await safe(
+    () => listTable("sellers", { select: "id,name", order: "name", ascending: true }),
+    []
+  );
 
   return { joints, suppliers, sellers };
 };
 
-/* ------------------------------------------------------------
-   Backward compatibility exports (Dashboard expects these)
-   ------------------------------------------------------------ */
-
 /**
- * Safe count helper: returns 0 if table/permission doesn't exist,
- * so dashboard never crashes the whole app.
+ * Dashboard metrics (required by dashboard.js).
+ * Keep it robust: if tables don't exist yet, return zeros instead of crashing the whole app.
  */
-const safeCount = async (table) => {
-  try {
-    const client = getClient();
-    const { count, error } = await client
-      .from(table)
-      .select("*", { count: "exact", head: true });
-    if (error) return 0;
-    return count || 0;
-  } catch {
-    return 0;
-  }
-};
+export const fetchDashboardMetrics = async (jointId = "") => {
+  const client = getClient();
 
-/**
- * Dashboard expects this named export.
- * Keep it very defensive: never throw, return a stable object.
- *
- * If you later tell me what fields dashboard.js renders, I’ll align
- * the keys exactly to that UI.
- */
-export const fetchDashboardMetrics = async () => {
-  const metrics = {
-    deliveries_count: 0,
-    allocations_count: 0,
-    payments_count: 0,
-    audits_count: 0,
-    events_count: 0,
+  const safeCount = async (table, filter = {}) => {
+    try {
+      let q = client.from(table).select("id", { count: "exact", head: true });
+      for (const [k, v] of Object.entries(filter)) {
+        if (v === "" || v === null || v === undefined) continue;
+        q = q.eq(k, v);
+      }
+      const { count, error } = await q;
+      if (error) throw error;
+      return count || 0;
+    } catch (e) {
+      console.warn(`fetchDashboardMetrics: count failed for ${table}`, e?.message || e);
+      return 0;
+    }
   };
 
-  // Only fill what exists; otherwise keep zeros.
-  metrics.deliveries_count = await safeCount("deliveries");
-  metrics.allocations_count = await safeCount("allocations");
-  metrics.payments_count = await safeCount("payments");
-  metrics.audits_count = await safeCount("audits");
-  metrics.events_count = await safeCount("events");
+  // If your schema uses different table names, this still won’t break the UI — it returns 0.
+  const filter = jointId ? { joint_id: jointId } : {};
 
-  return metrics;
+  const deliveries = await safeCount("deliveries", filter);
+  const allocations = await safeCount("allocations", filter);
+  const payments = await safeCount("payments", filter);
+  const audits = await safeCount("audits", filter);
+
+  return {
+    deliveries,
+    allocations,
+    payments,
+    audits,
+  };
 };
