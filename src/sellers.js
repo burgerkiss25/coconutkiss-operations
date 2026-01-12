@@ -2,9 +2,8 @@ import { fetchReferenceData, listTable } from "./db.js";
 
 const renderList = (listEl, rows) => {
   listEl.innerHTML = "";
-
   if (!rows || rows.length === 0) {
-    listEl.innerHTML = `<p class="muted">No sellers found.</p>`;
+    listEl.innerHTML = '<p class="muted">No sellers found.</p>';
     return;
   }
 
@@ -19,56 +18,76 @@ const renderList = (listEl, rows) => {
   });
 };
 
-export const loadSellers = async () => {
-  const { joints } = await fetchReferenceData();
+const buildJointOptions = (selectEl, joints) => {
+  selectEl.innerHTML = '<option value="">All joints</option>';
+  joints.forEach((joint) => {
+    const option = document.createElement("option");
+    option.value = joint.id;
+    option.textContent = joint.name;
+    selectEl.appendChild(option);
+  });
+};
 
+export const loadSellers = async () => {
   const filterSelect = document.getElementById("sellerJointFilter");
   const listEl = document.getElementById("sellerList");
+
   if (!filterSelect || !listEl) return;
 
-  // Filter Dropdown befüllen (Wert beibehalten)
-  const prev = filterSelect.value || "";
-  filterSelect.innerHTML = `<option value="">All joints</option>`;
-  joints.forEach((joint) => {
-    const opt = document.createElement("option");
-    opt.value = joint.id;
-    opt.textContent = joint.name;
-    filterSelect.appendChild(opt);
-  });
-  filterSelect.value = prev;
+  // 1) Load joints for filter dropdown
+  const { joints } = await fetchReferenceData();
+  buildJointOptions(filterSelect, joints);
 
+  // 2) Read selected joint AFTER options exist
   const selectedJoint = filterSelect.value || "";
 
-  // Aktive Assignments laden
-  const assignments = await listTable("seller_assignments", {
-    select: `
-      id,
-      seller_id,
-      joint_id,
-      active,
-      start_at,
-      end_at,
-      sellers(id,name),
-      joints(id,name)
-    `,
-    eq: selectedJoint ? { joint_id: selectedJoint, active: true } : { active: true },
-    order: "start_at",
-    ascending: false,
+  // 3) Load all sellers
+  const sellers = await listTable("sellers", {
+    select: "id,name",
+    order: "name",
+    ascending: true,
   });
 
-  const formatted = (assignments ?? []).map((a) => ({
-    id: a.sellers?.id ?? a.seller_id,
-    name: a.sellers?.name ?? "Unknown",
-    joint_name: a.joints?.name ?? null,
-  }));
+  // 4) Load active assignments (your table has: seller_id, joint_id, active, ... )
+  //    We also join joints(name) for display.
+  const assignments = await listTable("seller_assignments", {
+    select: "seller_id,joint_id,active,joints(name)",
+    eq: { active: true },
+  });
 
-  renderList(listEl, formatted);
-};
+  // Map: seller_id -> { joint_id, joint_name }
+  const assignmentBySeller = new Map();
+  for (const a of assignments) {
+    assignmentBySeller.set(a.seller_id, {
+      joint_id: a.joint_id,
+      joint_name: a.joints?.name || null,
+    });
+  }
 
-// Optional: nur wenn du in ui.js noch init brauchst
-export const initSellers = () => {
-  const filterSelect = document.getElementById("sellerJointFilter");
-  if (filterSelect) {
-    filterSelect.addEventListener("change", loadSellers);
+  // 5) Combine + optionally filter by joint
+  let combined = sellers.map((s) => {
+    const asg = assignmentBySeller.get(s.id);
+    return {
+      ...s,
+      joint_id: asg?.joint_id || null,
+      joint_name: asg?.joint_name || null,
+    };
+  });
+
+  if (selectedJoint) {
+    combined = combined.filter((s) => s.joint_id === selectedJoint);
+  }
+
+  renderList(listEl, combined);
+
+  // 6) Filter change handler (attach once)
+  if (!filterSelect.dataset.bound) {
+    filterSelect.dataset.bound = "1";
+    filterSelect.addEventListener("change", async () => {
+      await loadSellers();
+    });
   }
 };
+
+// Backward compatibility: some older ui.js versions imported initSellers
+export const initSellers = loadSellers;
