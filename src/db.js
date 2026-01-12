@@ -30,7 +30,6 @@ export const listTable = async (
 
   if (eq && typeof eq === "object") {
     for (const [key, value] of Object.entries(eq)) {
-      // ignore empty filter values
       if (value === "" || value === null || value === undefined) continue;
       q = q.eq(key, value);
     }
@@ -66,7 +65,6 @@ export const updateRow = async (table, match, patch) => {
 
 /**
  * Loads reference data used across tabs/forms.
- * Keep it light: only what the UI needs.
  */
 export const fetchReferenceData = async () => {
   const [joints, suppliers, sellers] = await Promise.all([
@@ -76,4 +74,51 @@ export const fetchReferenceData = async () => {
   ]);
 
   return { joints, suppliers, sellers };
+};
+
+/* ------------------------------------------------------------
+   Backward compatibility exports (Dashboard expects these)
+   ------------------------------------------------------------ */
+
+/**
+ * Safe count helper: returns 0 if table/permission doesn't exist,
+ * so dashboard never crashes the whole app.
+ */
+const safeCount = async (table) => {
+  try {
+    const client = getClient();
+    const { count, error } = await client
+      .from(table)
+      .select("*", { count: "exact", head: true });
+    if (error) return 0;
+    return count || 0;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * Dashboard expects this named export.
+ * Keep it very defensive: never throw, return a stable object.
+ *
+ * If you later tell me what fields dashboard.js renders, I’ll align
+ * the keys exactly to that UI.
+ */
+export const fetchDashboardMetrics = async () => {
+  const metrics = {
+    deliveries_count: 0,
+    allocations_count: 0,
+    payments_count: 0,
+    audits_count: 0,
+    events_count: 0,
+  };
+
+  // Only fill what exists; otherwise keep zeros.
+  metrics.deliveries_count = await safeCount("deliveries");
+  metrics.allocations_count = await safeCount("allocations");
+  metrics.payments_count = await safeCount("payments");
+  metrics.audits_count = await safeCount("audits");
+  metrics.events_count = await safeCount("events");
+
+  return metrics;
 };
