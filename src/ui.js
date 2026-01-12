@@ -8,13 +8,11 @@ import { loadEvents } from "./events.js";
 
 const tabs = document.querySelectorAll(".nav-item");
 const panels = document.querySelectorAll(".tab-panel");
-
 const modal = document.getElementById("modal");
 const modalOverlay = document.getElementById("modalOverlay");
 const closeModalBtn = document.getElementById("closeModal");
 const modalTitle = document.getElementById("modalTitle");
 const modalBody = document.getElementById("modalBody");
-
 const fab = document.getElementById("fab");
 const fabMenu = document.getElementById("fabMenu");
 
@@ -32,19 +30,17 @@ export const renderRole = (email, role) => {
   if (roleEl) roleEl.textContent = role ? `Role: ${role}` : "";
 };
 
-const openModal = (title, content) => {
+const openModal = (title, contentNode) => {
   if (!modal || !modalOverlay || !modalTitle || !modalBody) return;
-
   modalTitle.textContent = title;
   modalBody.innerHTML = "";
-  modalBody.appendChild(content);
+  modalBody.appendChild(contentNode);
   modal.classList.remove("hidden");
   modalOverlay.classList.remove("hidden");
 };
 
 export const closeModal = () => {
   if (!modal || !modalOverlay || !modalBody) return;
-
   modal.classList.add("hidden");
   modalOverlay.classList.add("hidden");
   modalBody.innerHTML = "";
@@ -80,62 +76,63 @@ const openAction = (action) => {
   };
 
   const templateId = templates[action];
-  const title = titles[action];
-  if (!templateId || !title) return;
-
-  const template = document.getElementById(templateId);
+  const template = templateId ? document.getElementById(templateId) : null;
   if (!template) return;
 
   const content = template.content.cloneNode(true);
-  openModal(title, content);
+  openModal(titles[action] || "Action", content);
 
-  // Side-effects
-  if (action === "events") loadEvents();
+  if (action === "events") {
+    // Events only when the modal is open
+    loadEvents();
+  }
 };
 
-fab?.addEventListener("click", () => {
+const handleActionClick = (event) => {
+  const target = event.target.closest("[data-open]");
+  if (!target) return;
+  const action = target.dataset.open;
+  if (!action) return;
+
+  // close the FAB menu after selecting an action
+  fabMenu?.classList.add("hidden");
+  openAction(action);
+};
+
+fab?.addEventListener("click", (e) => {
+  e.preventDefault();
   fabMenu?.classList.toggle("hidden");
 });
 
-// Zentrale Click-Delegation: zuverlässig via closest("[data-open]")
+fabMenu?.addEventListener("click", handleActionClick);
+
 document.addEventListener("click", (event) => {
-  const trigger = event.target.closest?.("[data-open]");
-  if (!trigger) return;
-
-  const action = trigger.dataset.open;
-  if (!action) return;
-
-  // Verhindert “komische” Doppel-Events / bubbling-Probleme
-  event.preventDefault();
-  event.stopPropagation();
-
-  // FAB Menü nach Auswahl schließen
-  fabMenu?.classList.add("hidden");
-
-  openAction(action);
+  // global delegate for any [data-open] elements (including inside modal)
+  if (event.target.closest("[data-open]")) {
+    handleActionClick(event);
+  }
 });
 
-closeModalBtn?.addEventListener("click", closeModal);
-modalOverlay?.addEventListener("click", closeModal);
+closeModalBtn?.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeModal();
+});
+
+modalOverlay?.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeModal();
+});
 
 for (const tab of tabs) {
   tab.addEventListener("click", async () => {
-    setActiveTab(tab.dataset.tab);
-    const loader = tabLoaders[tab.dataset.tab];
-    if (loader) await loader();
+    const t = tab.dataset.tab;
+    setActiveTab(t);
+    await tabLoaders[t]?.();
   });
 }
 
-// Bessere Fehlersichtbarkeit (hilft bei "stack depth limit exceeded")
-window.addEventListener("error", (e) => {
-  console.error("Window error:", e?.error || e?.message || e);
-});
-
-window.addEventListener("unhandledrejection", (e) => {
-  console.error("Unhandled promise rejection:", e?.reason || e);
-});
-
 window.addEventListener("load", async () => {
+  // If ui.js fails to load, login will be dead — so this MUST run.
   await initAuth();
   setActiveTab("dashboard");
   await loadDashboard();
